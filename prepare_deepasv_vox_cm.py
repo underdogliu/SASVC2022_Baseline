@@ -7,6 +7,7 @@ from pathlib import Path
 
 import glob
 import numpy as np
+import soundfile as sf
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -86,7 +87,7 @@ def save_embeddings(set_name, cm_embd_ext, asv_embd_ext, device):
 
 
 def save_embeddings_npys(src_ext_folder, tar_ext_folder, cm_embd_ext, device):
-    os.makedirs(tar_ext_folder, exist_ok=True)
+    os.makedirs(tar_ext_folder + "/npys", exist_ok=True)
 
     wav_scp = src_ext_folder + "/wav.scp"
     with open(wav_scp, "r") as wavscp:
@@ -95,13 +96,15 @@ def save_embeddings_npys(src_ext_folder, tar_ext_folder, cm_embd_ext, device):
             utt = line_sp[0]
             wav_path = line_sp[2]
 
-            x = np.load(wav_path)
+            x, _ = sf.read(wav_path)
             x = pad_random(x)
             x = torch.Tensor(x)
             x = x.to(device)
+            x = x.unsqueeze(0)
             with torch.no_grad():
                 cm_emb, _ = cm_embd_ext(x)
                 cm_emb = cm_emb.detach().cpu().numpy()
+                cm_emb = cm_emb.squeeze()
                 npy_file_path = tar_ext_folder + "/npys/{0}.npy".format(utt)
                 np.save(npy_file_path, cm_emb)
 
