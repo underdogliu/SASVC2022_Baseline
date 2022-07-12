@@ -172,22 +172,26 @@ def get_args():
 
 
 def main():
-    args = get_args()
+    # args = get_args()
+
+    aasist_config = "./aasist/config/AASIST.conf"
+    aasist_weight = "./aasist/models/weights/AASIST.pth"
+    ecapa_weight = "./ECAPATDNN/exps/pretrain.model"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Device: {}".format(device))
 
-    with open(args.aasist_config, "r") as f_json:
+    with open(aasist_config, "r") as f_json:
         config = json.loads(f_json.read())
 
     model_config = config["model_config"]
     cm_embd_ext = AASISTModel(model_config).to(device)
-    load_parameters(cm_embd_ext.state_dict(), args.aasist_weight)
+    load_parameters(cm_embd_ext.state_dict(), aasist_weight)
     cm_embd_ext.to(device)
     cm_embd_ext.eval()
 
     asv_embd_ext = ECAPA_TDNN(C=1024)
-    load_parameters(asv_embd_ext.state_dict(), args.ecapa_weight)
+    load_parameters(asv_embd_ext.state_dict(), ecapa_weight)
     asv_embd_ext.to(device)
     asv_embd_ext.eval()
 
