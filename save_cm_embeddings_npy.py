@@ -73,15 +73,16 @@ def save_embeddings(set_name, cm_embd_ext, asv_embd_ext, device):
 
     for batch_x, key in tqdm(loader):
         batch_x = batch_x.to(device)
-        print(batch_x.shape)
         with torch.no_grad():
             batch_cm_emb, _ = cm_embd_ext(batch_x)
             batch_cm_emb = batch_cm_emb.detach().cpu().numpy()
             batch_asv_emb = asv_embd_ext(batch_x, aug=False).detach().cpu().numpy()
 
-        for k, cm_emb, _ in zip(key, batch_cm_emb, batch_asv_emb):
-            npy_file_path = "npy_embeddings/{0}/{1}".format(set_name, k)
-            np.save(npy_file_path, cm_emb)
+        for k, cm_emb, asv_emb in zip(key, batch_cm_emb, batch_asv_emb):
+            cm_npy_file_path = "cm_npy_embeddings/{0}/{1}".format(set_name, k)
+            np.save(cm_npy_file_path, cm_emb)
+            asv_npy_file_path = "asv_npy_embeddings/{0}/{1}".format(set_name, k)
+            np.save(asv_npy_file_path, asv_emb)
 
 
 def save_models(set_name, asv_embd_ext, device):
@@ -168,6 +169,9 @@ def main():
     load_parameters(asv_embd_ext.state_dict(), args.ecapa_weight)
     asv_embd_ext.to(device)
     asv_embd_ext.eval()
+
+    os.makedirs("cm_npy_embeddings/npys", exist_ok=True)
+    os.makedirs("asv_npy_embeddings/npys", exist_ok=True)
 
     for set_name in SET_PARTITION:
         save_embeddings(

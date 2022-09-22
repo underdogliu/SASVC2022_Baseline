@@ -106,74 +106,6 @@ def save_embeddings_npys(src_ext_folder, tar_ext_folder, cm_embd_ext, device):
             npy_file_path = tar_ext_folder + "/npys/{0}.npy".format(utt)
             np.save(npy_file_path, cm_emb)
 
-    # with open(wav_scp, "r") as wavscp:
-    #     for line in wavscp:
-    #         line_sp = line.split()
-    #         utt = line_sp[0]
-    #         wav_path = line_sp[2]
-
-    #         x, _ = sf.read(wav_path)
-    #         x = pad_random(x)
-    #         x = torch.Tensor(x)
-    #         x = x.to(device)
-    #         x = x.unsqueeze(0)
-    #         with torch.no_grad():
-    #             cm_emb, _ = cm_embd_ext(x)
-    #             cm_emb = cm_emb.detach().cpu().numpy()
-    #             cm_emb = cm_emb.squeeze()
-    #             npy_file_path = tar_ext_folder + "/npys/{0}.npy".format(utt)
-    #             np.save(npy_file_path, cm_emb)
-
-
-def save_models(set_name, asv_embd_ext, device):
-    utt2spk = {}
-    utt_list = []
-
-    for trn in SET_TRN[set_name]:
-        meta_lines = open(trn, "r").readlines()
-
-        for line in meta_lines:
-            tmp = line.strip().split(" ")
-
-            spk = tmp[0]
-            utts = tmp[1].split(",")
-
-            for utt in utts:
-                if utt in utt2spk:
-                    print("Duplicated utt error", utt)
-
-                utt2spk[utt] = spk
-                utt_list.append(utt)
-
-    base_dir = SET_DIR[set_name]
-    dataset = Dataset_ASVspoof2019_devNeval(utt_list, Path(base_dir))
-    loader = DataLoader(
-        dataset, batch_size=30, shuffle=False, drop_last=False, pin_memory=True
-    )
-    asv_emb_dic = {}
-
-    print("Getting embedgins from set %s..." % (set_name))
-
-    for batch_x, key in tqdm(loader):
-        batch_x = batch_x.to(device)
-        with torch.no_grad():
-            batch_asv_emb = asv_embd_ext(batch_x, aug=False).detach().cpu().numpy()
-
-        for k, asv_emb in zip(key, batch_asv_emb):
-            utt = k
-            spk = utt2spk[utt]
-
-            if spk not in asv_emb_dic:
-                asv_emb_dic[spk] = []
-
-            asv_emb_dic[spk].append(asv_emb)
-
-    for spk in asv_emb_dic:
-        asv_emb_dic[spk] = np.mean(asv_emb_dic[spk], axis=0)
-
-    with open("embeddings/spk_model.pk_%s" % (set_name), "wb") as f:
-        pk.dump(asv_emb_dic, f)
-
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -191,11 +123,8 @@ def get_args():
 
 
 def main():
-    # args = get_args()
-
     aasist_config = "./aasist/config/AASIST.conf"
     aasist_weight = "./aasist/models/weights/AASIST.pth"
-    ecapa_weight = "./ECAPATDNN/exps/pretrain.model"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Device: {}".format(device))
@@ -209,11 +138,6 @@ def main():
     cm_embd_ext.to(device)
     cm_embd_ext.eval()
 
-    #asv_embd_ext = ECAPA_TDNN(C=1024)
-    #load_parameters(asv_embd_ext.state_dict(), ecapa_weight)
-    #asv_embd_ext.to(device)
-    #asv_embd_ext.eval()
-
     srcdir = sys.argv[1]
     tardir = sys.argv[2]
     save_embeddings_npys(srcdir, tardir, cm_embd_ext, device)
@@ -221,4 +145,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
