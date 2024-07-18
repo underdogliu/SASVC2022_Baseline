@@ -169,7 +169,6 @@ def main():
     load_parameters(asv_embd_ext.state_dict(), args.ecapa_weight)
     asv_embd_ext.to(device)
     asv_embd_ext.eval()
-
     for set_name in SET_PARTITION:
         os.makedirs("cm_npy_embeddings/{0}".format(set_name), exist_ok=True)
         os.makedirs("asv_npy_embeddings/{0}".format(set_name), exist_ok=True)
