@@ -123,6 +123,7 @@ if __name__ == "__main__":
     dev_wavs = glob.glob(asvspoof2019_dev_wav_dir + "/flac/*.flac")
     eval_wavs = glob.glob(asvspoof2019_eval_wav_dir + "/flac/*.flac")
     total_wavs = trn_wavs + dev_wavs + eval_wavs
+    print("Num. of total wavs to handle: {}".format(len(total_wavs)))
 
     wav_file_names = []
     pitches = []
@@ -145,10 +146,10 @@ if __name__ == "__main__":
     # Prepare a dictionary for the DataFrame
     data = {
         "ASVSPOOF_ID": wav_file_names,
-        "PITCH": [vals[0] for vals in pitches],
-        "SPK_RATE": [vals[1] for vals in speaking_rates],
-        "DURATION": [vals[2] for vals in durations],
-        "SNR": [vals[3] for vals in snrs],
+        "PITCH": pitches,
+        "SPK_RATE": speaking_rates,
+        "DURATION": durations,
+        "SNR": snrs,
     }
 
     # Create the DataFrame
@@ -156,7 +157,7 @@ if __name__ == "__main__":
 
     # Write the DataFrame to a TSV file
     df.to_csv(
-        "data/Database/ASVspoof_VCTK_VCC_MetaInfo/ASVspoof_VCTK_aligned_physical_meta.tsv",
+        "ASVspoof_VCTK_aligned_physical_meta.tsv",
         sep="\t",
         index=False,
     )
