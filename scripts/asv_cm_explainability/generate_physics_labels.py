@@ -131,6 +131,7 @@ if __name__ == "__main__":
     durations = []
     snrs = []
 
+    index = 0
     for wav_file in total_wavs:
         wav_file_names.append(os.path.basename(wav_file).split(".")[0])
         pitches.append(round(pitch_estimator.estimate_pitch(wav_file), num_roundings))
@@ -141,7 +142,8 @@ if __name__ == "__main__":
         )
         durations.append(round(duration_reader.read_duration(wav_file), num_roundings))
         snrs.append(round(snr_estimator.estimate_snr(wav_file), num_roundings))
-        print("Processed {}".format(wav_file))
+        index +=1
+        print("{}: Processed {}".format(index, wav_file))
 
     # Prepare a dictionary for the DataFrame
     data = {
