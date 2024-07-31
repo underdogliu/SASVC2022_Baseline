@@ -1,29 +1,21 @@
 import os
-
 import numpy as np
 import pandas as pd
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR
-
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
-from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
 # Define dataset class
 class ASVspoofDataset(Dataset):
-    def __init__(self, embeddings_dir, metadata, label_col, label_encoder, partition):
+    def __init__(self, embeddings_dir, metadata, label_col, partition):
         self.embeddings_dir = embeddings_dir
         self.metadata = metadata
         self.label_col = label_col
-        self.label_encoder = label_encoder
         self.partition = partition
 
     def __len__(self):
@@ -35,21 +27,21 @@ class ASVspoofDataset(Dataset):
             self.embeddings_dir, self.partition, asvspoof_id + ".npy"
         )
         embedding = np.load(embedding_path)
-        label = self.label_encoder.transform([self.metadata.iloc[idx][self.label_col]])[
-            0
-        ]
-        return torch.tensor(embedding, dtype=torch.float32), torch.tensor(
-            label, dtype=torch.long
-        )
+        label = self.metadata.iloc[idx][self.label_col]
+
+        src_data = torch.tensor(embedding, dtype=torch.float32), torch.tensor(
+            label, dtype=torch.float32
+        ).unsqueeze(0)
+        return src_data
 
 
 # Define model
 class MLP(nn.Module):
-    def __init__(self, input_dim, num_classes=1):
+    def __init__(self, input_dim):
         super(MLP, self).__init__()
         self.fc1 = nn.Linear(input_dim, 256)
         self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, num_classes)
+        self.fc3 = nn.Linear(256, 1)
 
     def forward(self, x):
         x = F.sigmoid(self.fc1(x))
@@ -63,10 +55,12 @@ def load_metadata(filepath):
 
 
 # Filter the DataFrame
-def filter_metadata(metadata, embeddings_dir):
+def filter_metadata(metadata, embeddings_dir, partition):
     filtered_metadata = metadata[
         metadata["ASVSPOOF_ID"].apply(
-            lambda x: os.path.exists(os.path.join(embeddings_dir, x + ".npy"))
+            lambda x: os.path.exists(
+                os.path.join(embeddings_dir, partition, x + ".npy")
+            )
         )
     ]
     return filtered_metadata
@@ -75,12 +69,15 @@ def filter_metadata(metadata, embeddings_dir):
 def preprocess_metadata(metadata, trn_embeddings_dir, eval_embeddings_dir):
     # Partition the data according to ASVspoof convention
     train_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("T|D")], trn_embeddings_dir
+        metadata[metadata["ASVSPOOF_ID"].str.contains("T|D")], trn_embeddings_dir, "trn"
+    )
+    dev_metadata = filter_metadata(
+        metadata[metadata["ASVSPOOF_ID"].str.contains("D")], trn_embeddings_dir, "dev"
     )
     eval_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("E")], eval_embeddings_dir
+        metadata[metadata["ASVSPOOF_ID"].str.contains("E")], eval_embeddings_dir, "eval"
     )
-    return train_metadata, eval_metadata
+    return train_metadata, dev_metadata, eval_metadata
 
 
 def train_model(model, train_loader, criterion, optimizer, device):
@@ -97,122 +94,98 @@ def train_model(model, train_loader, criterion, optimizer, device):
     return running_loss / len(train_loader)
 
 
-def evaluate_model(model, eval_loader, device):
+def evaluate_model(model, data_loader, device):
     model.eval()
-    true_labels = []
-    pred_labels = []
+    predictions = []
+    actuals = []
     with torch.no_grad():
-        for inputs, labels in eval_loader:
+        for inputs, labels in data_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            true_labels.extend(labels.cpu().numpy())
-            pred_labels.extend(preds.cpu().numpy())
-    accuracy = accuracy_score(true_labels, pred_labels)
-    return accuracy
+            predictions.extend(outputs.cpu().numpy())
+            actuals.extend(labels.cpu().numpy())
+    predictions = np.array(predictions).flatten()
+    actuals = np.array(actuals).flatten()
+    mae = mean_absolute_error(actuals, predictions)
+    mse = mean_squared_error(actuals, predictions)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(actuals, predictions)
+    return mae, mse, rmse, r2
 
 
 def main():
-    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_meta.tsv"
+    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta.tsv"
     embeddings_dir = "cm_npy_embeddings"
     label_cols = ["PITCH", "SPK_RATE", "DURATION", "SNR"]
 
     metadata = load_metadata(metadata_filepath)
-    train_metadata, eval_metadata = preprocess_metadata(
-        metadata, embeddings_dir + "/trn", embeddings_dir + "/eval"
+    train_metadata, dev_metadata, eval_metadata = preprocess_metadata(
+        metadata, embeddings_dir, embeddings_dir
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Prompt user to input the attribute to classify
-    print("Available attributes for classification:")
+    # Prompt user to input the attribute to perform regression on
+    print("Available attributes for regression:")
     for i, col in enumerate(label_cols):
         print(f"{i+1}. {col}")
     choice = (
         int(
             input(
-                "Enter the number corresponding to the attribute you want to classify: "
+                "Enter the number corresponding to the attribute you want to use for regression: "
             )
         )
         - 1
     )
     label_col = label_cols[choice]
 
-    label_encoder = LabelEncoder()
-    label_encoder.fit(pd.concat([train_metadata[label_col], eval_metadata[label_col]]))
-
     train_dataset = ASVspoofDataset(
-        embeddings_dir, train_metadata, label_col, label_encoder, partition="trn"
+        embeddings_dir, train_metadata, label_col, partition="trn"
     )
     dev_dataset = ASVspoofDataset(
-        embeddings_dir, train_metadata, label_col, label_encoder, partition="dev"
+        embeddings_dir, dev_metadata, label_col, partition="dev"
     )
     eval_dataset = ASVspoofDataset(
-        embeddings_dir, eval_metadata, label_col, label_encoder, partition="eval"
+        embeddings_dir, eval_metadata, label_col, partition="eval"
     )
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True)
     eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False)
 
-    model = MLP(input_dim=160, num_classes=len(label_encoder.classes_)).to(device)
-    # criterion = nn.MSELoss()
-    # optimizer = optim.Adam(model.parameters(), lr=0.001)
-    # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)  # Learning rate decay
-
-    # best_accuracy = 0
-    # patience = 5
-    # no_improvement = 0
-
-    # for epoch in range(50):  # Start with a larger number of epochs
-    #     train_loss = train_model(model, train_loader, criterion, optimizer, device)
-    #     accuracy = evaluate_model(model, eval_loader, device)
-    #     print(f"Epoch {epoch+1}, Loss: {train_loss:.4f}, Accuracy: {accuracy:.4f}")
-
-    #     if accuracy > best_accuracy:
-    #         best_accuracy = accuracy
-    #         no_improvement = 0
-    #     else:
-    #         no_improvement += 1
-
-    #     # if no_improvement >= patience:
-    #     #     print(f"Early stopping at epoch {epoch+1}")
-    #     #     break
-
-    #     scheduler.step()  # Update the learning rate
-
-    # accuracy = evaluate_model(model, eval_loader, device)
-    # print(f"Accuracy for {label_col}: {accuracy:.4f}")
-    criterion = nn.MSELoss()
+    input_dim = 160 if "cm" in embeddings_dir else 192
+    model = MLP(input_dim=input_dim).to(device)
+    criterion = nn.MSELoss()  # TODO correlation?
     optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)  # Learning rate decay
 
-    # Training loop
-    num_epochs = 50
-    model.train()
-    for epoch in range(num_epochs):
-        for X_batch, y_batch in train_loader:
-            optimizer.zero_grad()
-            outputs = model(X_batch)
-            loss = criterion(outputs, y_batch)
-            loss.backward()
-            optimizer.step()
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+    best_rmse = float("inf")
+    patience = 5
+    no_improvement = 0
 
-    # Evaluation
-    model.eval()
-    with torch.no_grad():
-        y_pred_train = model(X_train_tensor).numpy()
-        y_pred_test = model(X_test_tensor).numpy()
+    for epoch in range(1):  # Start with a larger number of epochs
+        train_loss = train_model(model, train_loader, criterion, optimizer, device)
+        mae, mse, rmse, r2 = evaluate_model(model, dev_loader, device)
+        print(
+            f"Epoch {epoch+1}, Loss: {train_loss:.4f}, Dev RMSE: {rmse:.4f}, R²: {r2:.4f}"
+        )
 
-    mae = mean_absolute_error(y_test, y_pred_test)
-    mse = mean_squared_error(y_test, y_pred_test)
-    rmse = np.sqrt(mse)
-    r2 = r2_score(y_test, y_pred_test)
+        if rmse < best_rmse:
+            best_rmse = rmse
+            no_improvement = 0
+        else:
+            no_improvement += 1
 
-    print(f'MAE: {mae}')
-    print(f'MSE: {mse}')
-    print(f'RMSE: {rmse}')
-    print(f'R²: {r2}')
+        if no_improvement >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break
+
+        scheduler.step()
+
+    mae, mse, rmse, r2 = evaluate_model(model, eval_loader, device)
+    print(
+        f"Evaluation Set - MAE: {round(mae, 4)}, MSE: {round(mse, 4)}, RMSE: {round(rmse, 4)}, R²: {round(r2, 4)}"
+    )
 
 
 if __name__ == "__main__":
