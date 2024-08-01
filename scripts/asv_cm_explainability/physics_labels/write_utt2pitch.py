@@ -30,4 +30,5 @@ if __name__ == "__main__":
         for f in flac_files:
             utt = os.path.basename(f).split(".")[0]
             dur = extract_pitch(f)
+            print("pitch energy: {}".format(dur))
             w.write("{} {}\n".format(utt, dur))

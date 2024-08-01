@@ -15,7 +15,7 @@ import parselmouth
 
 
 def transcribe_audio_with_whisper(audio_path):
-    model = whisper.load_model("base")
+    model = whisper.load_model("base", download_root="./models")
     result = model.transcribe(audio_path)
     return result["text"]
 

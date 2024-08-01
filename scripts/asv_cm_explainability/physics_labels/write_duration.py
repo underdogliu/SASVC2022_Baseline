@@ -4,7 +4,7 @@ import glob
 
 import soundfile as sf
 
-def read_duration(self, audio_path):
+def read_duration(audio_path):
     y, sr = sf.read(audio_path)
     duration = len(y) / sr
     return duration

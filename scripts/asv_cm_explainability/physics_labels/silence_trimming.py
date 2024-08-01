@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     flac_files = glob.glob(in_wav_dir + "/flac/*.flac")
     for in_wav_path in flac_files:
-        utt = os.path.basename(f).split(".")[0]
+        utt = os.path.basename(in_wav_path).split(".")[0]
         out_wav_path = out_wav_dir + "/{}.wav".format(utt)
 
         cmd = "sox {0} file_temp.flac silence 1 0.1 0.5% reverse && sox file_temp.flac {1} silence 1 0.1 0.5% reverse && rm file_temp.flac".format(
