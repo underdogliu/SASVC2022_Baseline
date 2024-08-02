@@ -1,4 +1,7 @@
 import os
+import sys
+import json
+
 import numpy as np
 import pandas as pd
 import torch
@@ -12,11 +15,14 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # Define dataset class
 class ASVspoofDataset(Dataset):
-    def __init__(self, embeddings_dir, metadata, label_col, partition):
+    def __init__(
+        self, embeddings_dir, metadata, label_col, partition, dim_range=[0, 0]
+    ):
         self.embeddings_dir = embeddings_dir
         self.metadata = metadata
         self.label_col = label_col
         self.partition = partition
+        self.dim_range = dim_range
 
     def __len__(self):
         return len(self.metadata)
@@ -27,6 +33,9 @@ class ASVspoofDataset(Dataset):
             self.embeddings_dir, self.partition, asvspoof_id + ".npy"
         )
         embedding = np.load(embedding_path)
+        if self.dim_range != [0, 0]:
+            start_dim, end_dim = self.dim_range
+            embedding = embedding[start_dim:end_dim]
         label = self.metadata.iloc[idx][self.label_col]
 
         src_data = torch.tensor(embedding, dtype=torch.float32), torch.tensor(
@@ -51,7 +60,9 @@ class MLP(nn.Module):
 
 
 def load_metadata(filepath):
-    return pd.read_csv(filepath, sep="\t")
+    full_metadata = pd.read_csv(filepath, sep="\t")
+    metadata = full_metadata.dropna()
+    return metadata
 
 
 # Filter the DataFrame
@@ -113,57 +124,71 @@ def evaluate_model(model, data_loader, device):
     return mae, mse, rmse, r2
 
 
-def main():
+def main(config_file):
+    # load experiment configurations
+    with open(config_file, "r") as f_json:
+        config = json.loads(f_json.read())
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta.tsv"
     embeddings_dir = "cm_npy_embeddings"
     label_cols = ["PITCH", "SPK_RATE", "DURATION", "SNR"]
+    label_col = config["trait"]
+    assert label_col in label_cols
 
     metadata = load_metadata(metadata_filepath)
     train_metadata, dev_metadata, eval_metadata = preprocess_metadata(
         metadata, embeddings_dir, embeddings_dir
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Prompt user to input the attribute to perform regression on
-    print("Available attributes for regression:")
-    for i, col in enumerate(label_cols):
-        print(f"{i+1}. {col}")
-    choice = (
-        int(
-            input(
-                "Enter the number corresponding to the attribute you want to use for regression: "
-            )
-        )
-        - 1
-    )
-    label_col = label_cols[choice]
-
+    embedding_dim_range = config["input"]["dim_range"]
     train_dataset = ASVspoofDataset(
-        embeddings_dir, train_metadata, label_col, partition="trn"
+        embeddings_dir,
+        train_metadata,
+        label_col,
+        partition="trn",
+        dim_range=embedding_dim_range,
     )
     dev_dataset = ASVspoofDataset(
-        embeddings_dir, dev_metadata, label_col, partition="dev"
+        embeddings_dir,
+        train_metadata,
+        label_col,
+        partition="dev",
+        dim_range=embedding_dim_range,
     )
     eval_dataset = ASVspoofDataset(
-        embeddings_dir, eval_metadata, label_col, partition="eval"
+        embeddings_dir,
+        eval_metadata,
+        label_col,
+        partition="eval",
+        dim_range=embedding_dim_range,
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True)
-    eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False)
+    batch_size = config["training"]["batch_size"]
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
+    eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
 
-    input_dim = 160 if "cm" in embeddings_dir else 192
-    model = MLP(input_dim=input_dim).to(device)
-    criterion = nn.MSELoss()  # TODO correlation?
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)  # Learning rate decay
+    model = MLP(input_dim=config["model"]["input_dim"]).to(device)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=config["training"]["learning_rate"],
+        weight_decay=config["training"]["adam_decay"],
+    )
+    scheduler = StepLR(
+        optimizer,
+        step_size=config["training"]["step_size"],
+        gamma=config["training"]["gamma"],
+    )
 
     best_rmse = float("inf")
     patience = 5
     no_improvement = 0
 
-    for epoch in range(1):  # Start with a larger number of epochs
+    num_epochs = config["training"]["num_epochs"]
+    for epoch in range(num_epochs):  # Start with a larger number of epochs
         train_loss = train_model(model, train_loader, criterion, optimizer, device)
         mae, mse, rmse, r2 = evaluate_model(model, dev_loader, device)
         print(
@@ -176,9 +201,9 @@ def main():
         else:
             no_improvement += 1
 
-        if no_improvement >= patience:
-            print(f"Early stopping at epoch {epoch+1}")
-            break
+        # if no_improvement >= patience:
+        #     print(f"Early stopping at epoch {epoch+1}")
+        #     break
 
         scheduler.step()
 
@@ -189,4 +214,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1])

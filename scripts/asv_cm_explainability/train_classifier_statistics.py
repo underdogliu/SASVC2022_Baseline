@@ -1,4 +1,6 @@
 import os
+import sys
+import json
 
 import numpy as np
 import pandas as pd
@@ -16,12 +18,21 @@ from sklearn.metrics import accuracy_score
 
 # Define dataset class
 class ASVspoofDataset(Dataset):
-    def __init__(self, embeddings_dir, metadata, label_col, label_encoder, partition):
+    def __init__(
+        self,
+        embeddings_dir,
+        metadata,
+        label_col,
+        label_encoder,
+        partition,
+        dim_range=[0, 0],
+    ):
         self.embeddings_dir = embeddings_dir
         self.metadata = metadata
         self.label_col = label_col
         self.label_encoder = label_encoder
         self.partition = partition
+        self.dim_range = dim_range
 
     def __len__(self):
         return len(self.metadata)
@@ -32,6 +43,9 @@ class ASVspoofDataset(Dataset):
             self.embeddings_dir, self.partition, asvspoof_id + ".npy"
         )
         embedding = np.load(embedding_path)
+        if self.dim_range != [0, 0]:
+            start_dim, end_dim = self.dim_range
+            embedding = embedding[start_dim:end_dim]
         label = self.label_encoder.transform([self.metadata.iloc[idx][self.label_col]])[
             0
         ]
@@ -56,7 +70,9 @@ class MLP(nn.Module):
 
 
 def load_metadata(filepath):
-    return pd.read_csv(filepath, sep="\t")
+    full_metadata = pd.read_csv(filepath, sep="\t")
+    metadata = full_metadata.dropna()
+    return metadata
 
 
 # Filter the DataFrame
@@ -109,64 +125,82 @@ def evaluate_model(model, eval_loader, device):
     return accuracy
 
 
-def main():
+def main(config_file):
+    # load experiment configurations
+    with open(config_file, "r") as f_json:
+        config = json.loads(f_json.read())
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_meta.tsv"
-    embeddings_dir = "cm_npy_embeddings"
+    embeddings_dir = config["embeddings_dir"]
+
     label_cols = ["TAR_SPK_ID", "AGE", "GENDER", "ACCENTS", "REGION"]
+    label_col = config["trait"]
+    assert label_col in label_cols
 
     metadata = load_metadata(metadata_filepath)
     train_metadata, eval_metadata = preprocess_metadata(
         metadata, embeddings_dir + "/trn", embeddings_dir + "/eval"
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Prompt user to input the attribute to classify
-    print("Available attributes for classification:")
-    for i, col in enumerate(label_cols):
-        print(f"{i+1}. {col}")
-    choice = (
-        int(
-            input(
-                "Enter the number corresponding to the attribute you want to classify: "
-            )
-        )
-        - 1
-    )
-    label_col = label_cols[choice]
-
     label_encoder = LabelEncoder()
     label_encoder.fit(pd.concat([train_metadata[label_col], eval_metadata[label_col]]))
 
+    embedding_dim_range = config["input"]["dim_range"]
     train_dataset = ASVspoofDataset(
-        embeddings_dir, train_metadata, label_col, label_encoder, partition="trn"
+        embeddings_dir,
+        train_metadata,
+        label_col,
+        label_encoder,
+        partition="trn",
+        dim_range=embedding_dim_range,
     )
     dev_dataset = ASVspoofDataset(
-        embeddings_dir, train_metadata, label_col, label_encoder, partition="dev"
+        embeddings_dir,
+        train_metadata,
+        label_col,
+        label_encoder,
+        partition="dev",
+        dim_range=embedding_dim_range,
     )
     eval_dataset = ASVspoofDataset(
-        embeddings_dir, eval_metadata, label_col, label_encoder, partition="eval"
+        embeddings_dir,
+        eval_metadata,
+        label_col,
+        label_encoder,
+        partition="eval",
+        dim_range=embedding_dim_range,
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True)
-    eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False)
+    batch_size = config["training"]["batch_size"]
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
+    eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
 
-    model = MLP(input_dim=160, num_classes=len(label_encoder.classes_)).to(device)
+    model = MLP(
+        input_dim=config["model"]["input_dim"], num_classes=len(label_encoder.classes_)
+    ).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)  # Learning rate decay
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=config["training"]["learning_rate"],
+        weight_decay=config["training"]["adam_decay"],
+    )
+    scheduler = StepLR(
+        optimizer,
+        step_size=config["training"]["step_size"],
+        gamma=config["training"]["gamma"],
+    )
 
     best_accuracy = 0
     patience = 5
     no_improvement = 0
 
-    for epoch in range(50):  # Start with a larger number of epochs
+    num_epochs = config["training"]["num_epochs"]
+    for epoch in range(num_epochs):  # Start with a larger number of epochs
         train_loss = train_model(model, train_loader, criterion, optimizer, device)
-        accuracy = evaluate_model(model, eval_loader, device)
+        accuracy = evaluate_model(model, dev_loader, device)
         print(f"Epoch {epoch+1}, Loss: {train_loss:.4f}, Accuracy: {accuracy:.4f}")
 
         if accuracy > best_accuracy:
@@ -186,4 +220,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1])
