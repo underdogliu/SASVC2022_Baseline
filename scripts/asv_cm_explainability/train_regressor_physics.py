@@ -13,6 +13,17 @@ from torch.optim.lr_scheduler import StepLR
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
+class RMSELoss(nn.Module):
+    def __init__(self, eps=1e-6):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.eps = eps
+        
+    def forward(self, yhat, y):
+        loss = torch.sqrt(self.mse(yhat, y) + self.eps)
+        return loss
+
+
 # Define dataset class
 class ASVspoofDataset(Dataset):
     def __init__(
@@ -82,13 +93,10 @@ def preprocess_metadata(metadata, trn_embeddings_dir, eval_embeddings_dir):
     train_metadata = filter_metadata(
         metadata[metadata["ASVSPOOF_ID"].str.contains("T|D")], trn_embeddings_dir, "trn"
     )
-    dev_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("D")], trn_embeddings_dir, "dev"
-    )
     eval_metadata = filter_metadata(
         metadata[metadata["ASVSPOOF_ID"].str.contains("E")], eval_embeddings_dir, "eval"
     )
-    return train_metadata, dev_metadata, eval_metadata
+    return train_metadata, eval_metadata
 
 
 def train_model(model, train_loader, criterion, optimizer, device):
@@ -119,7 +127,8 @@ def evaluate_model(model, data_loader, device):
     actuals = np.array(actuals).flatten()
     mae = mean_absolute_error(actuals, predictions)
     mse = mean_squared_error(actuals, predictions)
-    rmse = np.sqrt(mse)
+    #rmse = np.sqrt(mse + 1e-6)
+    rmse = np.sqrt(((actuals - predictions) ** 2).mean())
     r2 = r2_score(actuals, predictions)
     return mae, mse, rmse, r2
 
@@ -132,13 +141,13 @@ def main(config_file):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta.tsv"
-    embeddings_dir = "cm_npy_embeddings"
+    embeddings_dir = config["embeddings_dir"]
     label_cols = ["PITCH", "SPK_RATE", "DURATION", "SNR"]
     label_col = config["trait"]
     assert label_col in label_cols
 
     metadata = load_metadata(metadata_filepath)
-    train_metadata, dev_metadata, eval_metadata = preprocess_metadata(
+    train_metadata, eval_metadata = preprocess_metadata(
         metadata, embeddings_dir, embeddings_dir
     )
 
@@ -171,7 +180,8 @@ def main(config_file):
     eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
 
     model = MLP(input_dim=config["model"]["input_dim"]).to(device)
-    criterion = nn.MSELoss()
+    #criterion = nn.MSELoss()
+    criterion = RMSELoss()
     optimizer = optim.Adam(
         model.parameters(),
         lr=config["training"]["learning_rate"],
