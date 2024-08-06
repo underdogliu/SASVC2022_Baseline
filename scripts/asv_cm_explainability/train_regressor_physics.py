@@ -18,7 +18,7 @@ class RMSELoss(nn.Module):
         super().__init__()
         self.mse = nn.MSELoss()
         self.eps = eps
-        
+
     def forward(self, yhat, y):
         loss = torch.sqrt(self.mse(yhat, y) + self.eps)
         return loss
@@ -26,13 +26,10 @@ class RMSELoss(nn.Module):
 
 # Define dataset class
 class ASVspoofDataset(Dataset):
-    def __init__(
-        self, embeddings_dir, metadata, label_col, partition, dim_range=[0, 0]
-    ):
+    def __init__(self, embeddings_dir, metadata, label_col, dim_range=[0, 0]):
         self.embeddings_dir = embeddings_dir
         self.metadata = metadata
         self.label_col = label_col
-        self.partition = partition
         self.dim_range = dim_range
 
     def __len__(self):
@@ -40,9 +37,7 @@ class ASVspoofDataset(Dataset):
 
     def __getitem__(self, idx):
         asvspoof_id = self.metadata.iloc[idx, 0]
-        embedding_path = os.path.join(
-            self.embeddings_dir, self.partition, asvspoof_id + ".npy"
-        )
+        embedding_path = os.path.join(self.embeddings_dir, asvspoof_id + ".npy")
         embedding = np.load(embedding_path)
         if self.dim_range != [0, 0]:
             start_dim, end_dim = self.dim_range
@@ -88,13 +83,13 @@ def filter_metadata(metadata, embeddings_dir, partition):
     return filtered_metadata
 
 
-def preprocess_metadata(metadata, trn_embeddings_dir, eval_embeddings_dir):
+def preprocess_metadata(metadata, embeddings_dir):
     # Partition the data according to ASVspoof convention
     train_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("T|D")], trn_embeddings_dir, "trn"
+        metadata[metadata["PARTITION"].str.contains("train")], embeddings_dir
     )
     eval_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("E")], eval_embeddings_dir, "eval"
+        metadata[metadata["PARTITION"].str.contains("eval")], embeddings_dir
     )
     return train_metadata, eval_metadata
 
@@ -127,7 +122,7 @@ def evaluate_model(model, data_loader, device):
     actuals = np.array(actuals).flatten()
     mae = mean_absolute_error(actuals, predictions)
     mse = mean_squared_error(actuals, predictions)
-    #rmse = np.sqrt(mse + 1e-6)
+    # rmse = np.sqrt(mse + 1e-6)
     rmse = np.sqrt(((actuals - predictions) ** 2).mean())
     r2 = r2_score(actuals, predictions)
     return mae, mse, rmse, r2
@@ -141,36 +136,31 @@ def main(config_file):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta.tsv"
-    embeddings_dir = config["embeddings_dir"]
+    embeddings_dir = config["embeddings_dir"] + "/whole"
     label_cols = ["PITCH", "SPK_RATE", "DURATION", "SNR"]
     label_col = config["trait"]
     assert label_col in label_cols
 
     metadata = load_metadata(metadata_filepath)
-    train_metadata, eval_metadata = preprocess_metadata(
-        metadata, embeddings_dir, embeddings_dir
-    )
+    train_metadata, eval_metadata = preprocess_metadata(metadata, embeddings_dir)
 
     embedding_dim_range = config["input"]["dim_range"]
     train_dataset = ASVspoofDataset(
         embeddings_dir,
         train_metadata,
         label_col,
-        partition="trn",
         dim_range=embedding_dim_range,
     )
     dev_dataset = ASVspoofDataset(
         embeddings_dir,
         train_metadata,
         label_col,
-        partition="dev",
         dim_range=embedding_dim_range,
     )
     eval_dataset = ASVspoofDataset(
         embeddings_dir,
         eval_metadata,
         label_col,
-        partition="eval",
         dim_range=embedding_dim_range,
     )
 
@@ -180,7 +170,6 @@ def main(config_file):
     eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
 
     model = MLP(input_dim=config["model"]["input_dim"]).to(device)
-    #criterion = nn.MSELoss()
     criterion = RMSELoss()
     optimizer = optim.Adam(
         model.parameters(),

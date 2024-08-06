@@ -24,14 +24,12 @@ class ASVspoofDataset(Dataset):
         metadata,
         label_col,
         label_encoder,
-        partition,
         dim_range=[0, 0],
     ):
         self.embeddings_dir = embeddings_dir
         self.metadata = metadata
         self.label_col = label_col
         self.label_encoder = label_encoder
-        self.partition = partition
         self.dim_range = dim_range
 
     def __len__(self):
@@ -39,9 +37,7 @@ class ASVspoofDataset(Dataset):
 
     def __getitem__(self, idx):
         asvspoof_id = self.metadata.iloc[idx, 0]
-        embedding_path = os.path.join(
-            self.embeddings_dir, self.partition, asvspoof_id + ".npy"
-        )
+        embedding_path = os.path.join(self.embeddings_dir, asvspoof_id + ".npy")
         embedding = np.load(embedding_path)
         if self.dim_range != [0, 0]:
             start_dim, end_dim = self.dim_range
@@ -85,13 +81,13 @@ def filter_metadata(metadata, embeddings_dir):
     return filtered_metadata
 
 
-def preprocess_metadata(metadata, trn_embeddings_dir, eval_embeddings_dir):
+def preprocess_metadata(metadata, embeddings_dir):
     # Partition the data according to ASVspoof convention
     train_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("T|D")], trn_embeddings_dir
+        metadata[metadata["PARTITION"].str.contains("train")], embeddings_dir
     )
     eval_metadata = filter_metadata(
-        metadata[metadata["ASVSPOOF_ID"].str.contains("E")], eval_embeddings_dir
+        metadata[metadata["PARTITION"].str.contains("eval")], embeddings_dir
     )
     return train_metadata, eval_metadata
 
@@ -133,16 +129,14 @@ def main(config_file):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_meta.tsv"
-    embeddings_dir = config["embeddings_dir"]
+    embeddings_dir = config["embeddings_dir"] + "/whole"
 
     label_cols = ["TAR_SPK_ID", "AGE", "GENDER", "ACCENTS", "REGION"]
     label_col = config["trait"]
     assert label_col in label_cols
 
     metadata = load_metadata(metadata_filepath)
-    train_metadata, eval_metadata = preprocess_metadata(
-        metadata, embeddings_dir + "/trn", embeddings_dir + "/eval"
-    )
+    train_metadata, eval_metadata = preprocess_metadata(metadata, embeddings_dir)
 
     label_encoder = LabelEncoder()
     label_encoder.fit(pd.concat([train_metadata[label_col], eval_metadata[label_col]]))
@@ -153,7 +147,6 @@ def main(config_file):
         train_metadata,
         label_col,
         label_encoder,
-        partition="trn",
         dim_range=embedding_dim_range,
     )
     dev_dataset = ASVspoofDataset(
@@ -161,7 +154,6 @@ def main(config_file):
         train_metadata,
         label_col,
         label_encoder,
-        partition="dev",
         dim_range=embedding_dim_range,
     )
     eval_dataset = ASVspoofDataset(
