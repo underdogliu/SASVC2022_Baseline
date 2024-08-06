@@ -128,7 +128,7 @@ def main(config_file):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_meta.tsv"
+    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_meta_partitioned.tsv"
     embeddings_dir = config["embeddings_dir"] + "/whole"
 
     label_cols = ["TAR_SPK_ID", "AGE", "GENDER", "ACCENTS", "REGION"]
@@ -161,7 +161,6 @@ def main(config_file):
         eval_metadata,
         label_col,
         label_encoder,
-        partition="eval",
         dim_range=embedding_dim_range,
     )
 

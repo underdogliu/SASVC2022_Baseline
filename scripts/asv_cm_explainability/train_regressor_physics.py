@@ -72,11 +72,11 @@ def load_metadata(filepath):
 
 
 # Filter the DataFrame
-def filter_metadata(metadata, embeddings_dir, partition):
+def filter_metadata(metadata, embeddings_dir):
     filtered_metadata = metadata[
         metadata["ASVSPOOF_ID"].apply(
             lambda x: os.path.exists(
-                os.path.join(embeddings_dir, partition, x + ".npy")
+                os.path.join(embeddings_dir, x + ".npy")
             )
         )
     ]
@@ -135,7 +135,7 @@ def main(config_file):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta.tsv"
+    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta_partitioned.tsv"
     embeddings_dir = config["embeddings_dir"] + "/whole"
     label_cols = ["PITCH", "SPK_RATE", "DURATION", "SNR"]
     label_col = config["trait"]
@@ -208,7 +208,7 @@ def main(config_file):
 
     mae, mse, rmse, r2 = evaluate_model(model, eval_loader, device)
     print(
-        f"Evaluation Set - MAE: {round(mae, 4)}, MSE: {round(mse, 4)}, RMSE: {round(rmse, 4)}, R²: {round(r2, 4)}"
+        f"Evaluation on {label_col} - MAE: {round(mae, 4)}, MSE: {round(mse, 4)}, RMSE: {round(rmse, 4)}, R²: {round(r2, 4)}"
     )
 
 
