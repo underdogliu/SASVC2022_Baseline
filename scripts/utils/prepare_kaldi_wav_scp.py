@@ -6,7 +6,7 @@ import glob
 
 if __name__ == "__main__":
     data_dir = sys.argv[1]
-    wav_files = data_dir + "/trimmed/*.wav"
+    wav_files = glob.glob(data_dir + "/trimmed/*.wav")
 
     with open(data_dir + "/wav.scp", "w") as w:
         for wav_path in wav_files:
