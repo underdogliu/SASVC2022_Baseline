@@ -74,7 +74,7 @@ def save_embeddings(set_name, cm_embd_ext, asv_embd_ext, device):
     for batch_x, key in tqdm(loader):
         batch_x = batch_x.to(device)
         with torch.no_grad():
-            batch_cm_emb, _ = cm_embd_ext.forward_rawnet2(batch_x)
+            batch_cm_emb = cm_embd_ext.forward_rawnet2(batch_x)
             batch_cm_emb = batch_cm_emb.detach().cpu().numpy()
 
         for k, cm_emb, asv_emb in zip(key, batch_cm_emb, batch_asv_emb):

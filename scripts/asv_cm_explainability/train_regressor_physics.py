@@ -3,6 +3,7 @@ import sys
 import json
 
 import numpy as np
+import scipy.stats as stats
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -11,6 +12,18 @@ from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+
+def compute_P_value(R2):
+    n = 100    # Number of observations
+    k = 2      # Number of predictors
+
+    # Calculate F-statistic
+    F_stat = (R2 / k) / ((1 - R2) / (n - k - 1))
+
+    # Calculate p-value from F-distribution
+    p_value = stats.f.sf(F_stat, dfn=k, dfd=n-k-1)
+    return p_value
 
 
 class RMSELoss(nn.Module):
@@ -125,7 +138,8 @@ def evaluate_model(model, data_loader, device):
     # rmse = np.sqrt(mse + 1e-6)
     rmse = np.sqrt(((actuals - predictions) ** 2).mean())
     r2 = r2_score(actuals, predictions)
-    return mae, mse, rmse, r2
+    p_value = compute_P_value(r2)
+    return mae, mse, rmse, r2, p_value
 
 
 def main(config_file):
@@ -135,7 +149,8 @@ def main(config_file):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta_partitioned.tsv"
+    # metadata_filepath = "data/Database/ASVspoof_VCTK_aligned_physical_meta_partitioned.tsv"
+    metadata_filepath = config["metadata_filepath"]
     embeddings_dir = config["embeddings_dir"] + "/whole"
     label_cols = ["PITCH", "SPK_RATE", "DURATION", "SNR"]
     label_col = config["trait"]
@@ -189,9 +204,9 @@ def main(config_file):
     num_epochs = config["training"]["num_epochs"]
     for epoch in range(num_epochs):  # Start with a larger number of epochs
         train_loss = train_model(model, train_loader, criterion, optimizer, device)
-        mae, mse, rmse, r2 = evaluate_model(model, dev_loader, device)
+        mae, mse, rmse, r2, p_value = evaluate_model(model, dev_loader, device)
         print(
-            f"Epoch {epoch+1}, Loss: {train_loss:.4f}, Dev RMSE: {rmse:.4f}, R²: {r2:.4f}"
+                f"Epoch {epoch+1}, Loss: {train_loss:.4f}, Dev RMSE: {rmse:.4f}, R²: {r2:.4f}, p-value: {p_value:.4f}"
         )
 
         if rmse < best_rmse:
@@ -206,9 +221,9 @@ def main(config_file):
 
         scheduler.step()
 
-    mae, mse, rmse, r2 = evaluate_model(model, eval_loader, device)
+    mae, mse, rmse, r2, p_value = evaluate_model(model, eval_loader, device)
     print(
-        f"Evaluation on {label_col} - MAE: {round(mae, 4)}, MSE: {round(mse, 4)}, RMSE: {round(rmse, 4)}, R²: {round(r2, 4)}"
+            f"Evaluation on {label_col} - MAE: {round(mae, 4)}, MSE: {round(mse, 4)}, RMSE: {round(rmse, 4)}, R²: {round(r2, 4)}, p-value: {p_value:.4f}"
     )
 
 

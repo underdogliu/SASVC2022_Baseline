@@ -109,6 +109,7 @@ def train_model(model, train_loader, criterion, optimizer, device):
 
 def evaluate_model(model, eval_loader, device):
     model.eval()
+    
     true_labels = []
     pred_labels = []
     with torch.no_grad():
@@ -119,6 +120,7 @@ def evaluate_model(model, eval_loader, device):
             true_labels.extend(labels.cpu().numpy())
             pred_labels.extend(preds.cpu().numpy())
     accuracy = accuracy_score(true_labels, pred_labels)
+
     pred_labels = np.array(pred_labels)
     true_labels = np.array(true_labels)
     center, ci = evaluate_with_conf_int(pred_labels, accuracy_score, labels=true_labels, conditions=None, num_bootstraps=1000, alpha=5)
@@ -138,7 +140,7 @@ def main(config_file):
     metadata_filepath = config["metadata_filepath"]
     embeddings_dir = config["embeddings_dir"] + "/whole"
 
-    label_cols = ["TAR_SPK_ID", "AGE", "GENDER", "ACCENTS", "REGION"]
+    label_cols = ["ASVSPOOF_ID", "ATTACK", "TYPE", "AM", "WM"]
     label_col = config["trait"]
     assert label_col in label_cols
 
