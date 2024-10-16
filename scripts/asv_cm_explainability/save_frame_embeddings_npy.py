@@ -67,7 +67,7 @@ def save_embeddings(set_name, cm_embd_ext, asv_embd_ext, device):
         dataset, batch_size=30, shuffle=False, drop_last=False, pin_memory=True
     )
 
-    os.makedirs("npy_embeddings/{0}".format(set_name), exist_ok=True)
+    os.makedirs("cm_frame_npy_embeddings/{0}".format(set_name), exist_ok=True)
 
     print("Getting embeddings from set %s..." % (set_name))
 
@@ -77,7 +77,7 @@ def save_embeddings(set_name, cm_embd_ext, asv_embd_ext, device):
             batch_cm_emb = cm_embd_ext.forward_rawnet2(batch_x)
             batch_cm_emb = batch_cm_emb.detach().cpu().numpy()
 
-        for k, cm_emb, asv_emb in zip(key, batch_cm_emb, batch_asv_emb):
+        for k, cm_emb in zip(key, batch_cm_emb):
             cm_npy_file_path = "cm_frame_npy_embeddings/{0}/{1}".format(set_name, k)
             np.save(cm_npy_file_path, cm_emb)
 
